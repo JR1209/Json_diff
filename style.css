@@ -206,10 +206,66 @@ button {
     background: white;
     padding: 20px;
     border-radius: 8px;
-    display: flex;
-    gap: 30px;
     margin-bottom: 30px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* GitHub风格的统计 */
+.github-style-stats {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 15px 20px;
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.github-style-stats .files-changed {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #24292f;
+}
+
+.github-style-stats .files-changed .icon {
+    font-size: 20px;
+}
+
+.github-style-stats .files-changed strong {
+    font-weight: 600;
+}
+
+.github-style-stats .line-changes {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.github-style-stats .additions {
+    color: #1a7f37;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.github-style-stats .deletions {
+    color: #cf222e;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.github-style-stats .summary {
+    color: #57606a;
+}
+
+/* 详细统计 */
+.detail-stats {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
 }
 
 .stat-item {
@@ -416,6 +472,94 @@ button {
     color: white;
     border-color: #0366d6;
     font-weight: 600;
+}
+
+/* Git风格的文本级别diff标记 */
+.value-option-btn .diff-removed {
+    background-color: #ffebe9;
+    color: #cf222e;
+    text-decoration: line-through;
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+.value-option-btn .diff-added {
+    background-color: #dafbe1;
+    color: #1a7f37;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+/* 选中状态下的diff标记 */
+.value-option-btn.selected .diff-removed {
+    background-color: rgba(207, 34, 46, 0.2);
+    color: rgba(255, 255, 255, 0.95);
+    text-decoration: line-through;
+}
+
+.value-option-btn.selected .diff-added {
+    background-color: rgba(26, 127, 55, 0.2);
+    color: white;
+    font-weight: 600;
+}
+
+/* 按钮基础样式 */
+.value-option-btn {
+    background: white;
+    border: 2px solid #d0d7de;
+}
+
+/* 有差异的按钮 */
+.value-option-btn.has-diff {
+    background: #fff;
+    border-color: #fd8c73;
+}
+
+.value-option-btn.has-diff:hover {
+    background: #fff5f5;
+    border-color: #ff6b4a;
+}
+
+/* 基准值（最常见的值） */
+.value-option-btn.is-base-value {
+    background: #f6f8fa;
+    border-color: #afb8c1;
+}
+
+.value-option-btn.is-base-value:hover {
+    background: #eaeef2;
+    border-color: #8c959f;
+}
+
+/* 所有值相同 */
+.value-option-btn.all-same {
+    background: white;
+    border-color: #d0d7de;
+    color: #656d76;
+}
+
+.value-option-btn.all-same:hover {
+    background: #f6f8fa;
+    border-color: #0969da;
+}
+
+/* 选中状态 */
+.value-option-btn.selected {
+    background: #0969da;
+    color: white;
+    border-color: #0969da;
+    font-weight: 600;
+}
+
+.value-option-btn.has-diff.selected {
+    background: #2da44e;
+    border-color: #2da44e;
+}
+
+.value-option-btn.is-base-value.selected {
+    background: #0969da;
+    border-color: #0969da;
 }
 
 

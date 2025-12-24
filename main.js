@@ -163,36 +163,76 @@ class JSONDiffApp {
 
     displayStats() {
         const stats = this.diffResult.stats;
+        
+        // 计算行级别的变更统计
+        const lineStats = this.calculateLineChanges();
+        
         this.elements.statsBar.innerHTML = `
-            <div class="stat-item">
-                <span class="stat-icon">📁</span>
-                <div>
-                    <div class="stat-label">文件数</div>
-                    <div class="stat-value">${this.files.length}</div>
+            <div class="github-style-stats">
+                <div class="files-changed">
+                    <span class="icon">📄</span>
+                    <strong>${this.files.length} files</strong> changed
+                </div>
+                <div class="line-changes">
+                    <span class="additions">+${lineStats.additions}</span>
+                    <span class="deletions">-${lineStats.deletions}</span>
+                    <span class="summary">lines changed</span>
                 </div>
             </div>
-            <div class="stat-item">
-                <span class="stat-icon">➕</span>
-                <div>
-                    <div class="stat-label">新增</div>
-                    <div class="stat-value" style="color: #2ecc71;">${stats.added}</div>
+            <div class="detail-stats">
+                <div class="stat-item">
+                    <span class="stat-icon">➕</span>
+                    <div>
+                        <div class="stat-label">新增字段</div>
+                        <div class="stat-value" style="color: #2da44e;">${stats.added}</div>
+                    </div>
                 </div>
-            </div>
-            <div class="stat-item">
-                <span class="stat-icon">➖</span>
-                <div>
-                    <div class="stat-label">删除</div>
-                    <div class="stat-value" style="color: #ff4757;">${stats.removed}</div>
+                <div class="stat-item">
+                    <span class="stat-icon">➖</span>
+                    <div>
+                        <div class="stat-label">删除字段</div>
+                        <div class="stat-value" style="color: #cf222e;">${stats.removed}</div>
+                    </div>
                 </div>
-            </div>
-            <div class="stat-item">
-                <span class="stat-icon">✏️</span>
-                <div>
-                    <div class="stat-label">修改</div>
-                    <div class="stat-value" style="color: #ffa726;">${stats.modified}</div>
+                <div class="stat-item">
+                    <span class="stat-icon">✏️</span>
+                    <div>
+                        <div class="stat-label">修改字段</div>
+                        <div class="stat-value" style="color: #fb8500;">${stats.modified}</div>
+                    </div>
                 </div>
             </div>
         `;
+    }
+
+    calculateLineChanges() {
+        let additions = 0;
+        let deletions = 0;
+        
+        // 递归计算所有叶子节点的变更
+        const countChanges = (node) => {
+            if (!node.children || node.children.length === 0) {
+                // 叶子节点
+                if (node.status === 'added') {
+                    additions++;
+                } else if (node.status === 'removed') {
+                    deletions++;
+                } else if (node.status === 'modified') {
+                    // 修改算作一删一增
+                    deletions++;
+                    additions++;
+                }
+            } else {
+                // 递归子节点
+                node.children.forEach(child => countChanges(child));
+            }
+        };
+        
+        if (this.diffResult.tree.children) {
+            this.diffResult.tree.children.forEach(child => countChanges(child));
+        }
+        
+        return { additions, deletions };
     }
 
     createFileHeader() {
@@ -304,6 +344,20 @@ class JSONDiffApp {
         lineContainer.style.display = 'grid';
         lineContainer.style.gridTemplateColumns = `60px 200px repeat(${this.files.length}, 250px)`;
         
+        // 根据状态添加行背景色
+        if (node && !isStructural) {
+            if (status === 'added') {
+                lineContainer.style.backgroundColor = '#e6ffed';
+                lineContainer.style.borderLeft = '3px solid #2da44e';
+            } else if (status === 'removed') {
+                lineContainer.style.backgroundColor = '#ffebe9';
+                lineContainer.style.borderLeft = '3px solid #cf222e';
+            } else if (status === 'modified') {
+                lineContainer.style.backgroundColor = '#fff8c5';
+                lineContainer.style.borderLeft = '3px solid #fb8500';
+            }
+        }
+        
         // 行号
         const lineNum = document.createElement('div');
         lineNum.className = 'line-number';
@@ -325,6 +379,22 @@ class JSONDiffApp {
             });
         } else {
             // 值行，为每个文件创建值列
+            // 先收集所有存在的值用于diff对比
+            const existingValues = node.sources
+                .filter(s => s.exists)
+                .map(s => this.formatValue(s.value));
+            
+            // 检查是否有差异
+            const hasMultipleValues = new Set(existingValues).size > 1;
+            const baseValue = hasMultipleValues ? this.findMostCommonValue(existingValues) : null;
+            
+            // 调试日志
+            if (hasMultipleValues) {
+                console.log('Path:', node.path);
+                console.log('Values:', existingValues);
+                console.log('Base:', baseValue);
+            }
+            
             this.files.forEach((file, fileIndex) => {
                 const source = node.sources[fileIndex];
                 const valueCol = document.createElement('div');
@@ -334,7 +404,35 @@ class JSONDiffApp {
                     const value = this.formatValue(source.value);
                     const valueBtn = document.createElement('button');
                     valueBtn.className = 'value-option-btn';
-                    valueBtn.textContent = value;
+                    
+                    // 如果有差异，对每个值都进行diff标注
+                    if (hasMultipleValues && baseValue) {
+                        // 找出与当前值不同的所有其他值
+                        const otherValues = existingValues.filter(v => v !== value);
+                        
+                        if (otherValues.length > 0) {
+                            // 有不同的值，显示diff
+                            // 选择最常见的不同值作为对比基准
+                            const compareValue = otherValues[0];
+                            const diffResult = TextDiff.diff(compareValue, value);
+                            valueBtn.innerHTML = diffResult.text2Html;
+                            
+                            if (value === baseValue) {
+                                valueBtn.classList.add('is-base-value');
+                            } else {
+                                valueBtn.classList.add('has-diff');
+                            }
+                        } else {
+                            // 所有值都与当前值相同
+                            valueBtn.textContent = value;
+                            valueBtn.classList.add('is-base-value');
+                        }
+                    } else {
+                        // 所有值相同，正常显示
+                        valueBtn.textContent = value;
+                        valueBtn.classList.add('all-same');
+                    }
+                    
                     valueBtn.title = `${source.fileName}: ${value}`;
                     
                     // 检查是否被选中
@@ -375,6 +473,44 @@ class JSONDiffApp {
         if (typeof value === 'number') return value.toString();
         if (typeof value === 'object') return JSON.stringify(value);
         return String(value);
+    }
+
+    isValueDifferentFromOthers(sources, currentIndex) {
+        const currentSource = sources[currentIndex];
+        if (!currentSource || !currentSource.exists) return false;
+        
+        const currentValue = JSON.stringify(currentSource.value);
+        
+        // 检查是否有其他文件的值与当前值不同
+        for (let i = 0; i < sources.length; i++) {
+            if (i !== currentIndex && sources[i].exists) {
+                const otherValue = JSON.stringify(sources[i].value);
+                if (currentValue !== otherValue) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    findMostCommonValue(values) {
+        const counts = {};
+        values.forEach(val => {
+            counts[val] = (counts[val] || 0) + 1;
+        });
+        
+        let maxCount = 0;
+        let mostCommon = values[0];
+        
+        for (const [val, count] of Object.entries(counts)) {
+            if (count > maxCount) {
+                maxCount = count;
+                mostCommon = val;
+            }
+        }
+        
+        return mostCommon;
     }
 
     selectValueForPath(path, fileIndex, lineContainer) {

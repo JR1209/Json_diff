@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Text Diff Test</title>
+    <style>
+        .diff-removed {
+            background-color: #ffebe9;
+            color: #cf222e;
+            text-decoration: line-through;
+            padding: 2px 4px;
+        }
+        .diff-added {
+            background-color: #dafbe1;
+            color: #1a7f37;
+            padding: 2px 4px;
+        }
+        .test-case {
+            margin: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        h3 { margin-top: 0; }
+    </style>
+</head>
+<body>
+    <h1>Text Diff Algorithm Test</h1>
+    
+    <div class="test-case">
+        <h3>测试1: 简单字符替换</h3>
+        <p>原文: "我今天不想去上学了"</p>
+        <p>新文: "我明天不想去上学了"</p>
+        <p>结果: <span id="test1"></span></p>
+    </div>
+    
+    <div class="test-case">
+        <h3>测试2: 长文本差异</h3>
+        <p>原文: "从表述中可以感受到一种明显的抗拒情绪"</p>
+        <p>新文: "从表述中可以感受到一种隐藏的抗拒情绪"</p>
+        <p>结果: <span id="test2"></span></p>
+    </div>
+    
+    <div class="test-case">
+        <h3>测试3: 完全相同</h3>
+        <p>原文: "我不想写作业"</p>
+        <p>新文: "我不想写作业"</p>
+        <p>结果: <span id="test3"></span></p>
+    </div>
+    
+    <script src="text-diff.js"></script>
+    <script>
+        // 测试1
+        const result1 = TextDiff.diff("我今天不想去上学了", "我明天不想去上学了");
+        document.getElementById('test1').innerHTML = result1.text2Html;
+        console.log('Test 1:', result1);
+        
+        // 测试2
+        const result2 = TextDiff.diff("从表述中可以感受到一种明显的抗拒情绪", "从表述中可以感受到一种隐藏的抗拒情绪");
+        document.getElementById('test2').innerHTML = result2.text2Html;
+        console.log('Test 2:', result2);
+        
+        // 测试3
+        const result3 = TextDiff.diff("我不想写作业", "我不想写作业");
+        document.getElementById('test3').innerHTML = result3.text2Html;
+        console.log('Test 3:', result3);
+    </script>
+</body>
+</html>
