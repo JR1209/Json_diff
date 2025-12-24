@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Diff & Merge Tool - GitHub Style</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔀 JSON Diff & Merge Tool</h1>
+            <p class="subtitle">GitHub 风格的 JSON 对比工具</p>
+        </header>
+
+        <!-- 上传区域 -->
+        <section class="upload-section" id="uploadSection">
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">📁</div>
+                <p>拖拽 JSON 文件到此处，或点击选择文件</p>
+                <p class="hint">支持同时上传多个文件（建议 2-4 个）</p>
+                <input type="file" id="fileInput" multiple accept=".json,application/json" hidden>
+                <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
+                    选择文件
+                </button>
+            </div>
+
+            <!-- 已上传文件列表 -->
+            <div class="file-list" id="fileList"></div>
+
+            <div class="actions" id="actionButtons" style="display: none;">
+                <button class="btn-primary" id="compareBtn">开始对比</button>
+                <button class="btn-secondary" id="clearBtn">清空文件</button>
+            </div>
+        </section>
+
+        <!-- 对比结果区域 -->
+        <section class="result-section" id="resultSection" style="display: none;">
+            <div class="result-header">
+                <h2>📊 差异对比结果</h2>
+                <div class="result-actions">
+                    <button class="btn-success" id="exportBtn">📥 导出合并结果</button>
+                    <button class="btn-secondary" id="resetBtn">🔄 重新开始</button>
+                </div>
+            </div>
+
+            <!-- 统计信息 -->
+            <div class="stats" id="statsBar"></div>
+
+            <!-- 文件选择器 -->
+            <div class="file-selector">
+                <div class="file-tabs" id="fileTabs"></div>
+            </div>
+
+            <!-- GitHub 风格的并排对比视图 -->
+            <div class="github-diff-container">
+                <div class="diff-viewer" id="diffViewer"></div>
+            </div>
+
+            <!-- 合并结果预览 -->
+            <div class="merge-section">
+                <h3>✅ 合并结果预览</h3>
+                <div class="merge-preview">
+                    <pre id="mergePreview">{}</pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- 底部说明 -->
+        <footer>
+            <p>💡 提示：点击每一行的候选值来选择要合并的数据</p>
+        </footer>
+    </div>
+
+    <script src="diff.js"></script>
+    <script src="merge.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
