@@ -1,6 +1,23 @@
 # JSON Diff Tool ⚡
+启动方法
+方法1：Python HTTP服务器（最常用）
+cd /data/zl.zhang/JSON_diff
+python3 -m http.server 8080
+关闭：
+Ctrl + C
 
-高性能的多文件JSON对比与合并工具
+方法2：后台运行（推荐）
+cd /data/zl.zhang/JSON_diff
+nohup python3 -m http.server 8080 > server.log 2>&1 &
+关闭：
+# 查找进程
+ps aux | grep "python3 -m http.server"
+# 或者
+lsof -i :8080
+# 杀死进程（替换 <PID> 为实际的进程号）
+kill -9 <PID>
+
+然后在浏览器访问：http://localhost:8080
 
 ## ✨ 特性
 
