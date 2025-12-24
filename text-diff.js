@@ -19,6 +19,11 @@ class TextDiff {
             };
         }
 
+        // 对于很长的字符串，使用简化的diff算法
+        if (text1.length > 200 || text2.length > 200) {
+            return this.simpleDiff(text1, text2);
+        }
+
         // 使用最长公共子序列算法
         const lcs = this.longestCommonSubsequence(text1, text2);
         
@@ -147,12 +152,56 @@ class TextDiff {
     }
 
     /**
-     * HTML转义
+     * 简化的diff算法（用于长文本）
+     */
+    static simpleDiff(text1, text2) {
+        // 找出前缀和后缀的公共部分
+        let prefixLen = 0;
+        const minLen = Math.min(text1.length, text2.length);
+        
+        while (prefixLen < minLen && text1[prefixLen] === text2[prefixLen]) {
+            prefixLen++;
+        }
+        
+        let suffixLen = 0;
+        while (suffixLen < minLen - prefixLen && 
+               text1[text1.length - 1 - suffixLen] === text2[text2.length - 1 - suffixLen]) {
+            suffixLen++;
+        }
+        
+        const prefix = this.escapeHtml(text1.substring(0, prefixLen));
+        const suffix = this.escapeHtml(text1.substring(text1.length - suffixLen));
+        
+        const middle1 = text1.substring(prefixLen, text1.length - suffixLen);
+        const middle2 = text2.substring(prefixLen, text2.length - suffixLen);
+        
+        const text1Html = prefix + 
+            (middle1 ? `<span class="diff-removed">${this.escapeHtml(middle1)}</span>` : '') + 
+            suffix;
+            
+        const text2Html = prefix + 
+            (middle2 ? `<span class="diff-added">${this.escapeHtml(middle2)}</span>` : '') + 
+            suffix;
+        
+        return {
+            text1Html,
+            text2Html,
+            hasDiff: true
+        };
+    }
+
+    /**
+     * HTML转义（优化版 - 使用查找表）
      */
     static escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        const escapeMap = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        };
+        return text.replace(/[&<>"']/g, char => escapeMap[char]);
     }
 }
 

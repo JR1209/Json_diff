@@ -24,11 +24,16 @@ class JSONDiff {
             throw new Error('至少需要 2 个 JSON 文件进行对比');
         }
 
+        console.time('收集路径');
         // 收集所有文件中的所有路径
         const allPaths = this.collectAllPaths();
+        console.timeEnd('收集路径');
+        console.log(`总路径数: ${allPaths.size}`);
         
+        console.time('构建差异树');
         // 构建差异树
         this.diffTree = this.buildDiffTree(allPaths);
+        console.timeEnd('构建差异树');
         
         return {
             tree: this.diffTree,
@@ -37,40 +42,41 @@ class JSONDiff {
     }
 
     /**
-     * 收集所有文件中出现的所有路径
+     * 收集所有文件中出现的所有路径（优化版）
      */
     collectAllPaths() {
         const pathMap = new Map();
+        const fileCount = this.files.length;
 
+        // 并行遍历所有文件
         this.files.forEach((file, fileIndex) => {
             this.traverseJSON(file.data, '', (path, value) => {
                 if (!pathMap.has(path)) {
-                    pathMap.set(path, []);
+                    // 预分配数组，避免动态扩展
+                    pathMap.set(path, new Array(fileCount));
                 }
-                pathMap.get(path).push({
+                const sources = pathMap.get(path);
+                sources[fileIndex] = {
                     fileIndex,
                     fileName: file.name,
                     value: value,
                     exists: true
-                });
+                };
             });
         });
 
         // 补充缺失的文件（某些文件中不存在的路径）
         pathMap.forEach((sources, path) => {
-            this.files.forEach((file, fileIndex) => {
-                const hasFile = sources.some(s => s.fileIndex === fileIndex);
-                if (!hasFile) {
-                    sources.push({
-                        fileIndex,
-                        fileName: file.name,
+            for (let i = 0; i < fileCount; i++) {
+                if (!sources[i]) {
+                    sources[i] = {
+                        fileIndex: i,
+                        fileName: this.files[i].name,
                         value: undefined,
                         exists: false
-                    });
+                    };
                 }
-            });
-            // 按文件索引排序
-            sources.sort((a, b) => a.fileIndex - b.fileIndex);
+            }
         });
 
         return pathMap;
@@ -111,7 +117,7 @@ class JSONDiff {
     }
 
     /**
-     * 构建差异树结构
+     * 构建差异树结构（优化版）
      */
     buildDiffTree(pathMap) {
         const tree = {
@@ -138,11 +144,18 @@ class JSONDiff {
             return a.localeCompare(b);
         });
         
+        // 批量处理节点，减少函数调用开销
+        const nodesToInsert = [];
         sortedPaths.forEach(path => {
             if (!path) return; // 跳过根路径
             
             const sources = pathMap.get(path);
             const node = this.createNodeFromPath(path, sources);
+            nodesToInsert.push(node);
+        });
+        
+        // 批量插入节点
+        nodesToInsert.forEach(node => {
             this.insertNodeIntoTree(tree, node);
         });
 
@@ -202,27 +215,32 @@ class JSONDiff {
     }
 
     /**
-     * 确定节点状态
+     * 确定节点状态（优化版 - 减少遍历）
      */
     determineStatus(sources) {
-        const existingValues = sources
-            .filter(s => s.exists)
-            .map(s => JSON.stringify(s.value));
+        let existCount = 0;
+        let firstValue = null;
+        let allSame = true;
+        
+        for (const s of sources) {
+            if (s.exists) {
+                existCount++;
+                const strValue = JSON.stringify(s.value);
+                if (firstValue === null) {
+                    firstValue = strValue;
+                } else if (firstValue !== strValue) {
+                    allSame = false;
+                }
+            }
+        }
 
-        if (existingValues.length === 0) return 'removed';
-        if (existingValues.length === sources.length) {
-            // 所有文件都存在
-            const allSame = existingValues.every(v => v === existingValues[0]);
+        if (existCount === 0) return 'removed';
+        if (existCount === sources.length) {
             return allSame ? 'unchanged' : 'modified';
         }
         
         // 部分文件存在
-        if (sources.every(s => !s.exists)) return 'removed';
-        if (sources.every(s => s.exists)) return 'modified';
-        
-        // 混合状态
-        const hasAdded = sources.some((s, i) => s.exists && i > 0 && !sources[i-1].exists);
-        return hasAdded ? 'added' : 'modified';
+        return existCount > sources.length / 2 ? 'modified' : 'added';
     }
 
     /**

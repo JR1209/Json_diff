@@ -8,6 +8,8 @@ class JSONDiffApp {
         this.diffEngine = null;
         this.mergeEngine = null;
         this.diffResult = null;
+        this.diffCache = new Map(); // 缓存diff计算结果
+        this.updateMergePreviewThrottled = this.throttle(this.updateMergePreview.bind(this), 300);
 
         this.initializeUI();
         this.attachEventListeners();
@@ -67,20 +69,61 @@ class JSONDiffApp {
     }
 
     async loadFiles(fileList) {
-        for (const file of fileList) {
+        // 显示加载提示
+        const loadingMsg = document.createElement('div');
+        loadingMsg.className = 'loading-indicator';
+        loadingMsg.textContent = `正在加载 ${fileList.length} 个文件...`;
+        this.elements.fileList.appendChild(loadingMsg);
+
+        // 并行加载所有文件
+        const loadPromises = Array.from(fileList).map(async (file) => {
             if (file.type === 'application/json' || file.name.endsWith('.json')) {
                 try {
                     const text = await file.text();
                     const data = JSON.parse(text);
                     
-                    this.files.push({
+                    return {
                         name: file.name,
-                        data: data
-                    });
+                        data: data,
+                        success: true
+                    };
                 } catch (error) {
-                    alert(`解析文件 ${file.name} 失败: ${error.message}`);
+                    console.error(`解析文件 ${file.name} 失败:`, error);
+                    return {
+                        name: file.name,
+                        error: error.message,
+                        success: false
+                    };
                 }
             }
+            return null;
+        });
+
+        const results = await Promise.all(loadPromises);
+        
+        // 移除加载提示
+        if (loadingMsg.parentNode) {
+            loadingMsg.parentNode.removeChild(loadingMsg);
+        }
+
+        // 处理结果
+        const errors = [];
+        results.forEach(result => {
+            if (result) {
+                if (result.success) {
+                    this.files.push({
+                        name: result.name,
+                        data: result.data
+                    });
+                } else {
+                    errors.push(`${result.name}: ${result.error}`);
+                }
+            }
+        });
+
+        // 显示错误
+        if (errors.length > 0) {
+            alert(`以下文件加载失败:\n${errors.join('\n')}`);
         }
 
         this.updateFileList();
@@ -137,18 +180,37 @@ class JSONDiffApp {
             return;
         }
 
-        try {
-            this.diffEngine = new JSONDiff(this.files);
-            this.diffResult = this.diffEngine.compare();
+        // 显示进度提示
+        const progressOverlay = document.createElement('div');
+        progressOverlay.className = 'progress-overlay';
+        progressOverlay.innerHTML = `
+            <div class="progress-content">
+                <div class="progress-spinner"></div>
+                <div class="progress-text">正在对比文件...</div>
+            </div>
+        `;
+        document.body.appendChild(progressOverlay);
 
-            this.mergeEngine = new JSONMerger(this.diffResult.tree, this.files);
-            this.mergeEngine.initializeDefaultSelections();
+        // 使用 setTimeout 让UI有时间渲染
+        setTimeout(() => {
+            try {
+                this.diffEngine = new JSONDiff(this.files);
+                this.diffResult = this.diffEngine.compare();
 
-            this.displayResults();
-        } catch (error) {
-            alert(`对比失败: ${error.message}`);
-            console.error(error);
-        }
+                this.mergeEngine = new JSONMerger(this.diffResult.tree, this.files);
+                this.mergeEngine.initializeDefaultSelections();
+
+                this.displayResults();
+            } catch (error) {
+                alert(`对比失败: ${error.message}`);
+                console.error(error);
+            } finally {
+                // 移除进度提示
+                if (progressOverlay.parentNode) {
+                    progressOverlay.parentNode.removeChild(progressOverlay);
+                }
+            }
+        }, 100);
     }
 
     displayResults() {
@@ -159,6 +221,23 @@ class JSONDiffApp {
         this.createFileHeader();
         this.renderStructuredDiff();
         this.updateMergePreview();
+        this.syncScroll();
+    }
+    
+    syncScroll() {
+        // 同步标题和内容的横向滚动
+        const header = document.querySelector('.file-selector');
+        const content = document.querySelector('.github-diff-container');
+        
+        if (header && content) {
+            content.addEventListener('scroll', () => {
+                header.scrollLeft = content.scrollLeft;
+            });
+            
+            header.addEventListener('scroll', () => {
+                content.scrollLeft = header.scrollLeft;
+            });
+        }
     }
 
     displayStats() {
@@ -269,20 +348,212 @@ class JSONDiffApp {
     }
 
     renderStructuredDiff() {
-        this.elements.diffViewer.innerHTML = '';
+        this.elements.diffViewer.innerHTML = '<div class="loading-indicator">正在渲染差异...</div>';
         
-        // 渲染根节点的所有子节点
+        // 收集所有需要渲染的行
+        const allLines = [];
         let lineNumber = 1;
         
         // 开始大括号
-        this.renderLine(lineNumber++, '{', null, 'unchanged', true);
+        allLines.push({ lineNumber: lineNumber++, content: '{', node: null, status: 'unchanged', isStructural: true });
         
-        // 渲染所有字段
-        lineNumber = this.renderNode(this.diffResult.tree, lineNumber, 1);
+        // 收集所有行数据
+        this.collectLines(this.diffResult.tree, allLines, lineNumber, 1);
+        lineNumber = allLines[allLines.length - 1].lineNumber + 1;
         
         // 结束大括号
-        this.renderLine(lineNumber++, '}', null, 'unchanged', true);
+        allLines.push({ lineNumber: lineNumber++, content: '}', node: null, status: 'unchanged', isStructural: true });
+        
+        // 增量渲染（每批50行）
+        this.renderInBatches(allLines, 50);
     }
+    
+    collectLines(node, lines, lineNumber, indent) {
+        if (!node.children || node.children.length === 0) {
+            return lineNumber;
+        }
+
+        const indentStr = '  '.repeat(indent);
+        
+        node.children.forEach((child, index) => {
+            const isLast = index === node.children.length - 1;
+            const hasChildren = child.children && child.children.length > 0;
+            
+            if (hasChildren) {
+                const openBracket = child.type === 'array' ? '[' : '{';
+                const closeBracket = child.type === 'array' ? ']' : '}';
+                
+                lines.push({
+                    lineNumber: lineNumber++,
+                    content: `${indentStr}"${child.key}": ${openBracket}`,
+                    node: null,
+                    status: child.status,
+                    isStructural: true
+                });
+                
+                lineNumber = this.collectLines(child, lines, lineNumber, indent + 1);
+                
+                const comma = isLast ? '' : ',';
+                lines.push({
+                    lineNumber: lineNumber++,
+                    content: `${indentStr}${closeBracket}${comma}`,
+                    node: null,
+                    status: child.status,
+                    isStructural: true
+                });
+            } else {
+                const comma = isLast ? '' : ',';
+                lines.push({
+                    lineNumber: lineNumber++,
+                    content: `${indentStr}"${child.key}":`,
+                    node: child,
+                    status: child.status,
+                    isStructural: false,
+                    comma: comma
+                });
+            }
+        });
+        
+        return lineNumber;
+    }
+    
+    renderInBatches(lines, batchSize) {
+        this.elements.diffViewer.innerHTML = '';
+        let index = 0;
+        
+        const renderBatch = () => {
+            const end = Math.min(index + batchSize, lines.length);
+            const fragment = document.createDocumentFragment();
+            
+            for (let i = index; i < end; i++) {
+                const line = lines[i];
+                const lineEl = this.createQuickLineElement(
+                    line.lineNumber,
+                    line.content,
+                    line.node,
+                    line.status,
+                    line.isStructural,
+                    line.comma || ''
+                );
+                fragment.appendChild(lineEl);
+            }
+            
+            this.elements.diffViewer.appendChild(fragment);
+            index = end;
+            
+            if (index < lines.length) {
+                // 继续下一批
+                requestAnimationFrame(renderBatch);
+            }
+        };
+        
+        renderBatch();
+    }
+    
+    createQuickLineElement(lineNumber, content, node, status, isStructural, comma = '') {
+        const lineContainer = document.createElement('div');
+        lineContainer.className = `multi-file-line ${status}`;
+        lineContainer.style.display = 'grid';
+        lineContainer.style.gridTemplateColumns = `60px 200px repeat(${this.files.length}, 250px)`;
+        
+        // 根据状态添加行背景色
+        if (node && !isStructural) {
+            if (status === 'added') {
+                lineContainer.style.backgroundColor = '#e6ffed';
+                lineContainer.style.borderLeft = '3px solid #2da44e';
+            } else if (status === 'removed') {
+                lineContainer.style.backgroundColor = '#ffebe9';
+                lineContainer.style.borderLeft = '3px solid #cf222e';
+            } else if (status === 'modified') {
+                lineContainer.style.backgroundColor = '#fff8c5';
+                lineContainer.style.borderLeft = '3px solid #fb8500';
+            }
+        }
+        
+        const lineNum = document.createElement('div');
+        lineNum.className = 'line-number';
+        lineNum.textContent = lineNumber;
+        lineContainer.appendChild(lineNum);
+        
+        const keyPart = document.createElement('div');
+        keyPart.className = 'line-key';
+        keyPart.textContent = content;
+        lineContainer.appendChild(keyPart);
+        
+        if (isStructural || !node) {
+            this.files.forEach(() => {
+                const emptyCol = document.createElement('div');
+                emptyCol.className = 'file-value-column';
+                lineContainer.appendChild(emptyCol);
+            });
+        } else {
+            const existingValues = node.sources
+                .filter(s => s.exists)
+                .map(s => this.formatValue(s.value));
+            
+            const hasMultipleValues = new Set(existingValues).size > 1;
+            const baseValue = hasMultipleValues ? this.findMostCommonValue(existingValues) : null;
+            
+            this.files.forEach((file, fileIndex) => {
+                const source = node.sources[fileIndex];
+                const valueCol = document.createElement('div');
+                valueCol.className = 'file-value-column';
+                
+                if (source.exists) {
+                    const value = this.formatValue(source.value);
+                    const valueBtn = document.createElement('button');
+                    valueBtn.className = 'value-option-btn';
+                    
+                    if (hasMultipleValues) {
+                        // 找出所有不同的值
+                        const uniqueValues = [...new Set(existingValues)];
+                        
+                        if (uniqueValues.length > 1) {
+                            // 使用多文件diff对比（绿色=相同，红色=不同）
+                            const htmlResult = this.highlightDifferences(value, existingValues);
+                            valueBtn.innerHTML = htmlResult;
+                            valueBtn.classList.add('has-diff');
+                        } else {
+                            // 实际上所有值相同 - 全绿
+                            valueBtn.innerHTML = `<span class="text-same">${this.escapeHtml(value)}</span>`;
+                            valueBtn.classList.add('all-same');
+                        }
+                    } else {
+                        // 所有文件值相同 - 全绿
+                        valueBtn.innerHTML = `<span class="text-same">${this.escapeHtml(value)}</span>`;
+                        valueBtn.classList.add('all-same');
+                    }
+                    
+                    valueBtn.title = `${source.fileName}: ${value}`;
+                    
+                    const currentSelection = this.mergeEngine.getSelection(node.path);
+                    if (currentSelection === fileIndex) {
+                        valueBtn.classList.add('selected');
+                    }
+                    
+                    valueBtn.addEventListener('click', () => {
+                        this.selectValueForPath(node.path, fileIndex, lineContainer);
+                    });
+                    
+                    valueCol.appendChild(valueBtn);
+                } else {
+                    valueCol.innerHTML = '<span class="empty-value">-</span>';
+                }
+                
+                if (fileIndex === this.files.length - 1 && comma) {
+                    const commaSpan = document.createElement('span');
+                    commaSpan.textContent = comma;
+                    commaSpan.style.marginLeft = '5px';
+                    valueCol.appendChild(commaSpan);
+                }
+                
+                lineContainer.appendChild(valueCol);
+            });
+        }
+        
+        return lineContainer;
+    }
+
 
     renderNode(node, lineNumber, indent) {
         if (!node.children || node.children.length === 0) {
@@ -337,6 +608,7 @@ class JSONDiffApp {
         
         return lineNumber;
     }
+
 
     renderLine(lineNumber, content, node, status, isStructural, comma = '') {
         const lineContainer = document.createElement('div');
@@ -407,25 +679,23 @@ class JSONDiffApp {
                     
                     // 如果有差异，对每个值都进行diff标注
                     if (hasMultipleValues && baseValue) {
-                        // 找出与当前值不同的所有其他值
-                        const otherValues = existingValues.filter(v => v !== value);
-                        
-                        if (otherValues.length > 0) {
-                            // 有不同的值，显示diff
-                            // 选择最常见的不同值作为对比基准
-                            const compareValue = otherValues[0];
-                            const diffResult = TextDiff.diff(compareValue, value);
-                            valueBtn.innerHTML = diffResult.text2Html;
-                            
-                            if (value === baseValue) {
-                                valueBtn.classList.add('is-base-value');
-                            } else {
-                                valueBtn.classList.add('has-diff');
-                            }
-                        } else {
-                            // 所有值都与当前值相同
+                        if (value === baseValue) {
+                            // 基准值，不显示diff
                             valueBtn.textContent = value;
                             valueBtn.classList.add('is-base-value');
+                        } else {
+                            // 使用缓存的diff结果
+                            const cacheKey = `${baseValue}||${value}`;
+                            let diffResult = this.diffCache.get(cacheKey);
+                            
+                            if (!diffResult) {
+                                // 懒加载：只在需要时计算diff
+                                diffResult = TextDiff.diff(baseValue, value);
+                                this.diffCache.set(cacheKey, diffResult);
+                            }
+                            
+                            valueBtn.innerHTML = diffResult.text2Html;
+                            valueBtn.classList.add('has-diff');
                         }
                     } else {
                         // 所有值相同，正常显示
@@ -524,7 +794,8 @@ class JSONDiffApp {
             }
         });
         
-        this.updateMergePreview();
+        // 使用节流的更新函数
+        this.updateMergePreviewThrottled();
     }
 
     updateMergePreview() {
@@ -542,16 +813,83 @@ class JSONDiffApp {
         this.mergeEngine.downloadJSON(`merged-${timestamp}.json`);
     }
 
+    // 节流函数 - 限制函数执行频率
+    throttle(func, wait) {
+        let timeout = null;
+        let previous = 0;
+        
+        return function(...args) {
+            const now = Date.now();
+            const remaining = wait - (now - previous);
+            
+            if (remaining <= 0 || remaining > wait) {
+                if (timeout) {
+                    clearTimeout(timeout);
+                    timeout = null;
+                }
+                previous = now;
+                func.apply(this, args);
+            } else if (!timeout) {
+                timeout = setTimeout(() => {
+                    previous = Date.now();
+                    timeout = null;
+                    func.apply(this, args);
+                }, remaining);
+            }
+        };
+    }
+
     reset() {
         this.files = [];
         this.diffEngine = null;
         this.mergeEngine = null;
         this.diffResult = null;
+        this.diffCache.clear(); // 清空缓存
 
         this.elements.resultSection.style.display = 'none';
         this.elements.uploadSection.style.display = 'block';
 
         this.clearFiles();
+    }
+    
+    // HTML转义
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // 高亮差异：绿色=相同，红色=不同
+    highlightDifferences(currentValue, allValues) {
+        const otherValues = allValues.filter(v => v !== currentValue);
+        if (otherValues.length === 0) {
+            // 全部相同 - 全绿
+            return `<span class="text-same">${this.escapeHtml(currentValue)}</span>`;
+        }
+        
+        // 找出在所有其他值中都出现的字符（相同部分）
+        const currentStr = String(currentValue);
+        const chars = currentStr.split('');
+        let result = '';
+        
+        for (let i = 0; i < chars.length; i++) {
+            const char = chars[i];
+            // 检查这个字符在相同位置是否在所有其他值中都存在
+            const isSame = otherValues.every(otherVal => {
+                const otherStr = String(otherVal);
+                return otherStr.length > i && otherStr[i] === char;
+            });
+            
+            if (isSame) {
+                // 绿色 - 相同
+                result += `<span class="text-same">${this.escapeHtml(char)}</span>`;
+            } else {
+                // 红色 - 不同
+                result += `<span class="text-diff">${this.escapeHtml(char)}</span>`;
+            }
+        }
+        
+        return result;
     }
 }
 
