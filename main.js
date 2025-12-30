@@ -238,13 +238,28 @@ class JSONDiffApp {
         const content = document.querySelector('.github-diff-container');
         
         if (header && content) {
-            content.addEventListener('scroll', () => {
-                header.scrollLeft = content.scrollLeft;
-            });
+            let isHeaderScrolling = false;
+            let isContentScrolling = false;
             
+            // 内容滚动时同步到标题
+            content.addEventListener('scroll', () => {
+                if (isHeaderScrolling) {
+                    isHeaderScrolling = false;
+                    return;
+                }
+                isContentScrolling = true;
+                header.scrollLeft = content.scrollLeft;
+            }, { passive: true });
+            
+            // 标题滚动时同步到内容
             header.addEventListener('scroll', () => {
+                if (isContentScrolling) {
+                    isContentScrolling = false;
+                    return;
+                }
+                isHeaderScrolling = true;
                 content.scrollLeft = header.scrollLeft;
-            });
+            }, { passive: true });
         }
     }
 

@@ -49,3 +49,6 @@ yarn-error.log*
 
 # Node modules (如果将来使用npm)
 node_modules/
+
+# Anthropics Skills
+skills/
