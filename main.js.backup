@@ -10,8 +10,6 @@ class JSONDiffApp {
         this.diffResult = null;
         this.diffCache = new Map(); // 缓存diff计算结果
         this.updateMergePreviewThrottled = this.throttle(this.updateMergePreview.bind(this), 300);
-        this.currentPage = 1;
-        this.itemsPerPage = 500;
 
         this.initializeUI();
         this.attachEventListeners();
@@ -32,11 +30,7 @@ class JSONDiffApp {
             mergePreview: document.getElementById('mergePreview'),
             exportBtn: document.getElementById('exportBtn'),
             resetBtn: document.getElementById('resetBtn'),
-            statsBar: document.getElementById('statsBar'),
-            paginationControls: document.getElementById('paginationControls'),
-            prevPageBtn: document.getElementById('prevPageBtn'),
-            nextPageBtn: document.getElementById('nextPageBtn'),
-            pageInfo: document.getElementById('pageInfo'),
+            statsBar: document.getElementById('statsBar')
         };
     }
 
@@ -62,8 +56,6 @@ class JSONDiffApp {
         this.elements.clearBtn.addEventListener('click', () => this.clearFiles());
         this.elements.exportBtn.addEventListener('click', () => this.exportMergedJSON());
         this.elements.resetBtn.addEventListener('click', () => this.reset());
-        this.elements.prevPageBtn.addEventListener('click', () => this.prevPage());
-        this.elements.nextPageBtn.addEventListener('click', () => this.nextPage());
     }
 
     handleFileSelect(event) {
@@ -372,12 +364,8 @@ class JSONDiffApp {
         // 结束大括号
         allLines.push({ lineNumber: lineNumber++, content: '}', node: null, status: 'unchanged', isStructural: true });
         
-        // 保存所有行数据用于分页
-        this.allLines = allLines;
-        this.currentPage = 1;
-        
-        // 渲染第一页
-        this.renderCurrentPage();
+        // 增量渲染（每批50行）
+        this.renderInBatches(allLines, 50);
     }
     
     collectLines(node, lines, lineNumber, indent) {
@@ -574,18 +562,46 @@ class JSONDiffApp {
 
         const indentStr = '  '.repeat(indent);
         
-        node.children.forEach((child) => {
+        node.children.forEach((child, index) => {
+            const isLast = index === node.children.length - 1;
             const hasChildren = child.children && child.children.length > 0;
             
             if (hasChildren) {
-                lineNumber = this.renderNode(child, lineNumber, indent + 1);
-            } else {
+                // 对象或数组类型
+                const openBracket = child.type === 'array' ? '[' : '{';
+                const closeBracket = child.type === 'array' ? ']' : '}';
+                
+                // 键名 + 开括号
                 this.renderLine(
                     lineNumber++,
-                    `${indentStr}${child.key}`,
+                    `${indentStr}"${child.key}": ${openBracket}`,
+                    null,
+                    child.status,
+                    true
+                );
+                
+                // 递归渲染子节点
+                lineNumber = this.renderNode(child, lineNumber, indent + 1);
+                
+                // 闭括号
+                const comma = isLast ? '' : ',';
+                this.renderLine(
+                    lineNumber++,
+                    `${indentStr}${closeBracket}${comma}`,
+                    null,
+                    child.status,
+                    true
+                );
+            } else {
+                // 叶子节点（实际的值）
+                const comma = isLast ? '' : ',';
+                this.renderLine(
+                    lineNumber++,
+                    `${indentStr}"${child.key}":`,
                     child,
                     child.status,
-                    false
+                    false,
+                    comma
                 );
             }
         });
@@ -594,8 +610,7 @@ class JSONDiffApp {
     }
 
 
-
-    renderLine(lineNumber, content, node, status, isStructural) {
+    renderLine(lineNumber, content, node, status, isStructural, comma = '') {
         const lineContainer = document.createElement('div');
         lineContainer.className = `multi-file-line ${status}`;
         lineContainer.style.display = 'grid';
@@ -799,37 +814,6 @@ class JSONDiffApp {
     }
 
     // 节流函数 - 限制函数执行频率
-
-    prevPage() {
-        if (this.currentPage > 1) {
-            this.currentPage--;
-            this.renderCurrentPage();
-        }
-    }
-
-    nextPage() {
-        const totalPages = Math.ceil(this.allLines.length / this.itemsPerPage);
-        if (this.currentPage < totalPages) {
-            this.currentPage++;
-            this.renderCurrentPage();
-        }
-    }
-
-    renderCurrentPage() {
-        const start = (this.currentPage - 1) * this.itemsPerPage;
-        const end = start + this.itemsPerPage;
-        const pageLines = this.allLines.slice(start, end);
-        
-        this.elements.diffViewer.innerHTML = '';
-        this.renderInBatches(pageLines, 50);
-        
-        const totalPages = Math.ceil(this.allLines.length / this.itemsPerPage);
-        this.elements.pageInfo.textContent = `第 ${this.currentPage} / ${totalPages} 页`;
-        this.elements.prevPageBtn.disabled = this.currentPage === 1;
-        this.elements.nextPageBtn.disabled = this.currentPage === totalPages;
-        this.elements.paginationControls.style.display = 'block';
-    }
-
     throttle(func, wait) {
         let timeout = null;
         let previous = 0;
